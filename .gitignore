@@ -1,0 +1,3 @@
+*.ttf
+.vscode/
+go.sum
