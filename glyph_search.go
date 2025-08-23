@@ -43,28 +43,28 @@ func (g *GlyphOutlineMapper) SetConcurrent(concurrent int) {
 	g.sem = make(chan struct{}, concurrent)
 }
 
-func (g *GlyphOutlineMapper) GlyphOutlineEqual(specialUnicode, standardUnicode rune) (bool, error) {
+func (g *GlyphOutlineMapper) GlyphOutlineEqual(specialUnicode, standardUnicode rune) bool {
 	// 获取字符在字体中的索引
 	index1 := g.specialFont.Index(specialUnicode)
 	index2 := g.standardFont.Index(standardUnicode)
 
 	if index1 == 0 || index2 == 0 {
-		return false, nil // 字符不存在
+		return false // 字符不存在
 	}
 
 	// 获取字形轮廓数据
 	var buf1, buf2 truetype.GlyphBuf
 	err := buf1.Load(g.specialFont, fixed.I(1000), index1, font.HintingNone)
 	if err != nil {
-		return false, fmt.Errorf("加载专有字体失败: %w", err)
+		return false
 	}
 	err = buf2.Load(g.standardFont, fixed.I(1000), index2, font.HintingNone)
 	if err != nil {
-		return false, fmt.Errorf("加载标准字体失败: %w", err)
+		return false
 	}
 
 	// 实际比较轮廓数据
-	return g.compareGlyphOutlines(&buf1, &buf2), nil
+	return g.compareGlyphOutlines(&buf1, &buf2)
 }
 
 // compareGlyphOutlines 比较两个字形的轮廓数据
@@ -133,14 +133,14 @@ func (g *GlyphOutlineMapper) Mapping(start, end rune) map[rune]rune {
 }
 
 func (g *GlyphOutlineMapper) MappingRune(unicode rune) (specialRune, standardRune rune, ok bool) {
-	if ok, _ = g.hasGlyph(g.specialFont, unicode); !ok {
+	if ok = g.hasGlyph(g.specialFont, unicode); !ok {
 		return
 	}
 	for j := 0x4e00; j <= 0x9fff; j++ {
-		if ok, _ = g.hasGlyph(g.standardFont, rune(j)); !ok {
+		if ok = g.hasGlyph(g.standardFont, rune(j)); !ok {
 			continue
 		}
-		if ok, _ = g.GlyphOutlineEqual(rune(unicode), rune(j)); ok {
+		if ok = g.GlyphOutlineEqual(rune(unicode), rune(j)); ok {
 			specialRune = rune(unicode)
 			standardRune = rune(j)
 			return
@@ -149,15 +149,15 @@ func (g *GlyphOutlineMapper) MappingRune(unicode rune) (specialRune, standardRun
 	return
 }
 
-func (g *GlyphOutlineMapper) hasGlyph(font *truetype.Font, char rune) (bool, string) {
+func (g *GlyphOutlineMapper) hasGlyph(font *truetype.Font, char rune) bool {
 	if font == nil {
-		return false, "字体未加载"
+		return false
 	}
 
 	// 方法1：检查字体索引
 	index := font.Index(char)
 	if index == 0 && char != 0 {
-		return false, "字符索引为0（字符不存在）"
+		return false
 	}
 
 	// 方法2：检查字形边界和advance
@@ -166,33 +166,33 @@ func (g *GlyphOutlineMapper) hasGlyph(font *truetype.Font, char rune) (bool, str
 
 	bounds, advance, ok := face.GlyphBounds(char)
 	if !ok {
-		return false, "无法获取字形边界"
+		return false
 	}
 
 	// 方法3：检查是否有实际的可视字形
 	if bounds.Empty() && advance == 0 {
-		return false, "空边界且无宽度"
+		return false
 	}
 
 	// 方法4：对于私有使用区域的特殊检查
 	if char >= 0xE000 && char <= 0xF8FF {
 		// 私有使用区域，即使bounds为空也可能有字形
 		if advance > 0 {
-			return true, "私有区域有宽度"
+			return true
 		}
 		if !bounds.Empty() {
-			return true, "私有区域有边界"
+			return true
 		}
 		if index > 0 {
-			return true, "私有区域有索引"
+			return true
 		}
-		return false, "私有区域无数据"
+		return false
 	}
 
 	// 一般情况下，有索引就认为存在
 	if index > 0 {
-		return true, "有效索引"
+		return true
 	}
 
-	return false, "未知原因"
+	return false
 }

@@ -1,4 +1,4 @@
-module font-mapper
+module github.com/bestnite/font-mapper
 
 go 1.23.0
 
