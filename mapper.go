@@ -10,11 +10,12 @@ import (
 )
 
 type GlyphOutlineMapper struct {
-	specialFont  *truetype.Font
-	standardFont *truetype.Font
-	concurrent   int
-	wg           *sync.WaitGroup
-	sem          chan struct{}
+	specialFont          *truetype.Font
+	standardFont         *truetype.Font
+	standardFontLastRune rune
+	concurrent           int
+	wg                   *sync.WaitGroup
+	sem                  chan struct{}
 }
 
 func NewGlyphOutlineMapper(specialFontData, standardFontData []byte) (*GlyphOutlineMapper, error) {
@@ -35,6 +36,7 @@ func NewGlyphOutlineMapper(specialFontData, standardFontData []byte) (*GlyphOutl
 		return nil, fmt.Errorf("parse standard font failed: %w", err)
 	}
 	mapper.standardFont = standardFont
+	mapper.standardFontLastRune = mapper.findLastRune(standardFont)
 	return &mapper, nil
 }
 
@@ -107,6 +109,20 @@ func (g *GlyphOutlineMapper) compareGlyphOutlines(buf1, buf2 *truetype.GlyphBuf)
 	return true
 }
 
+func (g *GlyphOutlineMapper) findLastRune(font *truetype.Font) rune {
+	if font == nil {
+		return 0
+	}
+	// Iterate downwards from the highest possible rune to find the last one with a glyph.
+	// This can be slow on startup.
+	for r := rune(0x10FFFF); r >= 0; r-- {
+		if font.Index(r) > 0 {
+			return r
+		}
+	}
+	return 0
+}
+
 func (g *GlyphOutlineMapper) Mapping(start, end rune) map[rune]rune {
 	results := &sync.Map{}
 	for i := start; i <= end; i++ {
@@ -136,13 +152,21 @@ func (g *GlyphOutlineMapper) MappingRune(unicode rune) (specialRune, standardRun
 	if ok = g.hasGlyph(g.specialFont, unicode); !ok {
 		return
 	}
-	for j := 0x4e00; j <= 0x9fff; j++ {
-		if ok = g.hasGlyph(g.standardFont, rune(j)); !ok {
+	if ok = g.hasGlyph(g.standardFont, unicode); ok {
+		if ok = g.GlyphOutlineEqual(unicode, unicode); ok {
+			specialRune = unicode
+			standardRune = unicode
+			return
+		}
+	}
+
+	for j := rune(0); j <= g.standardFontLastRune; j++ {
+		if ok = g.hasGlyph(g.standardFont, j); !ok {
 			continue
 		}
-		if ok = g.GlyphOutlineEqual(rune(unicode), rune(j)); ok {
-			specialRune = rune(unicode)
-			standardRune = rune(j)
+		if ok = g.GlyphOutlineEqual(unicode, j); ok {
+			specialRune = unicode
+			standardRune = j
 			return
 		}
 	}
